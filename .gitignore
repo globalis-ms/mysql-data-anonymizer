@@ -1,0 +1,15 @@
+# Folder config file
+**/config/config.php
+
+# Don't commit composer lock file
+**/composer.lock
+
+# composer installed dependencies
+**/vendor/*
+**/vendor
+
+/src/providers/*
+/src/helpers/*
+
+!/src/helpers/GeneralHelper.php
+!/src/providers/.gitkeep
