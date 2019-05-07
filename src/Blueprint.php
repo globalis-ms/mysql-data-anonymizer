@@ -54,13 +54,6 @@ class Blueprint
     public $synchroColumns = [];
 
     /**
-     * The foreign keys that need be restored.
-     *
-     * @var array
-     */
-    public $foreignKeys = [];
-
-    /**
      * Names of triggers created.
      *
      * @var array
@@ -184,19 +177,6 @@ class Blueprint
 
         return $this;
     }
-
-    /**
-     * Back up a foreign key.
-     *
-     * @param callable|string $callback
-     *
-     * @return void
-     */
-    public function backUpForeignKey($foreign_key)
-    {
-        $this->foreignKeys[] = $foreign_key;
-    }
-
 
     /**
      * Set how data should be replaced.

@@ -6,7 +6,7 @@ MySQL Data Anonymizer is the right tool for you. This tool helps you replace all
 Fake data is provided by a [fzaninotto/Faker](https://github.com/fzaninotto/Faker) generator by default, but you can also use your own generator.
 To improve the performance, [AMP/MySQL](https://github.com/amphp/mysql) is used to create multiple MySQL connections concurrently.
 
-MySQL Data Anonymizer requires PHP >= 7.0.
+MySQL Data Anonymizer requires PHP >= 7.2.
 
 # Table of Contents
 
