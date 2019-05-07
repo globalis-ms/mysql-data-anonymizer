@@ -153,6 +153,29 @@ class Blueprint
     }
 
     /**
+     * A simple method to set data with generator
+     *
+     * @param string  $data_type
+     * @param boolean $is_unique
+     *
+     * @return void
+     */
+    public function replaceWithGenerator($data_type, $is_unique = false)
+    {
+        if($is_unique) {
+            $closure = function ($generator) use($data_type) {
+                return $generator->unique()->$data_type;
+            };
+        } else {
+            $closure = function ($generator) use($data_type) {
+                return $generator->$data_type;
+            };
+        }
+
+        return $this->replaceWith($closure);
+    }
+
+    /**
      * Save all columns that need to be synchronized..
      *
      * @param array $synchroData

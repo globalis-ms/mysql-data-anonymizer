@@ -304,7 +304,7 @@ class Anonymizer
             }
         }
 
-        if($columns ?? false) {
+        if(!($columns ?? false)) {
             $columns = implode(',', array_merge($blueprint->primary, array_column($blueprint->columns, 'name')));
         }
         $sql = "SELECT {$columns} FROM {$table}";
