@@ -12,6 +12,13 @@ class Blueprint
     protected static $defaultPrimary = ['id'];
 
     /**
+     * Database to blueprint.
+     *
+     * @var string
+     */
+    public $db_name;
+
+    /**
      * Table to blueprint.
      *
      * @var string
@@ -73,9 +80,10 @@ class Blueprint
      * @param string        $table
      * @param callable|null $callback
      */
-    public function __construct($table, callable $callback)
+    public function __construct($table, $db_name, callable $callback = NULL)
     {
         $this->table = $table;
+        $this->$db_name = $db_name;
         $this->callback = $callback;
     }
 
@@ -194,7 +202,7 @@ class Blueprint
             $this->synchroColumns[$this->currentColumn['name']][] = [
                 'field'           => $synchroField[0],
                 'table'           => $synchroField[1] ?? $this->table,
-                'database'        => $synchroField[2] ?? null,
+                'database'        => $synchroField[2] ?? $this->db_name,
             ];
         }
 
@@ -224,7 +232,9 @@ class Blueprint
     {
         $callback = $this->callback;
 
-        $callback($this);
+        if(is_callable($callback)) {
+            $callback($this);
+        }
 
         if (is_null($this->primary)) {
             $this->primary = self::$defaultPrimary;
