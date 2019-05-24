@@ -149,7 +149,7 @@ class Blueprint
      *
      * @param callable|string $callback
      *
-     * @return void
+     * @return $this
      */
     public function replaceWith($callback)
     {
@@ -165,20 +165,32 @@ class Blueprint
      *
      * @param string  $data_type
      * @param boolean $is_unique
+     * @param boolean $is_optional
+     * @param mixed   $default_value
+     * @param decimal $optional_weight
      *
-     * @return void
+     * @return $this
      */
-    public function replaceWithGenerator($data_type, $is_unique = false)
+    public function replaceWithGenerator($data_type, $is_unique = false, $is_optional = false, $default_value = null, $optional_weight = null)
     {
-        if($is_unique) {
-            $closure = function ($generator) use($data_type) {
-                return $generator->unique()->$data_type;
-            };
-        } else {
-            $closure = function ($generator) use($data_type) {
-                return $generator->$data_type;
-            };
-        }
+        $closure = function ($generator) use($data_type, $is_unique, $is_optional, $default_value, $optional_weight) {
+            $final_generator = $generator;
+            if ($is_unique) {
+                $final_generator = $final_generator->unique();
+            }
+            if ($is_optional) {
+                if ($default_value && $optional_weight) {
+                    $final_generator = $final_generator->optional($weight = $optional_weight, $default = $default_value);
+                } elseif ($default_value) {
+                    $final_generator = $final_generator->optional($default = $default_value);
+                } elseif($optional_weight) {
+                    $final_generator = $final_generator->optional($weight = $optional_weight);
+                } else {
+                    $final_generator = $final_generator->optional();
+                }
+            }
+            return $final_generator->$data_type;
+        };
 
         return $this->replaceWith($closure);
     }
@@ -188,7 +200,7 @@ class Blueprint
      *
      * @param array $synchroData
      *
-     * @return void
+     * @return $this
      */
     public function synchronizeColumn()
     {

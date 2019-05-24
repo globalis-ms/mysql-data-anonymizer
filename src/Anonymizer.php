@@ -55,9 +55,9 @@ class Anonymizer
     /**
      * Constructor.
      *
-     * @param mixed             $generator
+     * @param boolean $is_remote
      */
-    public function __construct($is_remote = false, $generator = null)
+    public function __construct($is_remote = false)
     {
         $this->is_remote = $is_remote;
     	$this->load_config();
@@ -69,16 +69,19 @@ class Anonymizer
             $this->mysql_pool_source = Mysql\pool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST_SOURCE'].";user=".$this->config['DB_USER_SOURCE'].";pass=".$this->config['DB_PASSWORD_SOURCE'].";db=". $this->config['DB_NAME_SOURCE']), $this->config['NB_MAX_MYSQL_CLIENT_SOURCE']);
         }
 
-        if (is_null($generator) && class_exists('\Faker\Factory')) {
-            $generator = \Faker\Factory::create($this->config['DEFAULT_GENERATOR_LOCALE']);
+        try {
+            if (!class_exists('\Faker\Factory')) {
+                throw new Exception('Fzaninotto can not be found.');
+            }
+        } catch (Exception $e) {
+            echo 'Error: ' . $e->getMessage(). PHP_EOL;
+            exit(1);
         }
-
-        if (!is_null($generator)) {
-            $this->setGenerator($generator);
-        }
-        $this->load_providers();
     }
 
+    /**
+     * Load configuration file
+     */
     protected function load_config()
     {
         try {
@@ -145,7 +148,9 @@ class Anonymizer
         }
     }
 
-
+    /**
+     * Load helper functions
+     */
     protected function load_helpers()
     {
         foreach (glob(__DIR__ . "/helpers/*Helper.php") as $filename)
@@ -154,6 +159,9 @@ class Anonymizer
         }
     }
 
+    /**
+     * Load provider functions
+     */
     protected function load_providers()
     {
         foreach (glob(__DIR__ . "/providers/*Provider.php") as $filename)
@@ -197,55 +205,72 @@ class Anonymizer
      */
     public function run()
     {
-        Amp\Loop::run(function () {
-            $promises = [];
-            $promise_count = 0;
-            yield $this->disableForeignKeyCheck();
-            foreach ($this->blueprints as $index => $blueprint) {
-                $table = $blueprint->table;
-                foreach ($blueprint->synchroColumns as $column_name => $data) {
-                    yield $this->addUpdateTrigger($blueprint, $column_name, $data);
-                }
+        if ($this->is_remote) {
+            $this->remote_run();
+        }
+        else {
+            Amp\Loop::run(function () {
+                $promises = [];
+                $promise_count = 0;
+                yield $this->disableForeignKeyCheck();
+                foreach ($this->blueprints as $index => $blueprint) {
+                    if (empty($blueprint->columns)) {
+                        continue;
+                    }
 
-                $selectData = yield $this->getSelectData($table, $blueprint);
-                $rowNum = 0;
+                    $table = $blueprint->table;
+                    $this->setGenerator(\Faker\Factory::create($this->config['DEFAULT_GENERATOR_LOCALE']));
+                    $this->load_providers();
+                    foreach ($blueprint->synchroColumns as $column_name => $data) {
+                        $trigger_name = "mysql_data_anonymizer_trigger_" . count($blueprint->triggers);
+                        yield $this->mysql_pool->query("DROP TRIGGER IF EXISTS {$trigger_name}");
+                        try {
+                            yield $this->addUpdateTrigger($blueprint, $column_name, $data);
+                        } catch (TypeError $e) {
+                            echo "Caught as type error: ".$e->getMessage().PHP_EOL;
+                        }
+                    }
 
-                //Update every line selected
-                while (yield $selectData->advance()) {
-                    $row = $selectData->getCurrent();
-                    $promises[] = $this->updateByPrimary(
-                        $blueprint,
-                        Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
-                        $blueprint->columns,
-                        $rowNum,
-                        $row);
+                    $selectData = yield $this->getSelectData($table, $blueprint);
+                    $rowNum = 0;
 
-                    $promise_count ++;
-                    $rowNum ++;
+                    //Update every line selected
+                    while (yield $selectData->advance()) {
+                        $row = $selectData->getCurrent();
+                        $promises[] = $this->updateByPrimary(
+                            $blueprint,
+                            Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
+                            $blueprint->columns,
+                            $rowNum,
+                            $row);
 
-                    //Wait for all the results of SQL queries and clear the promise table
-                    if($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
-                        yield \Amp\Promise\all($promises);
-                        $promises = [];
-                        $promise_count = 0;
+                        $promise_count ++;
+                        $rowNum ++;
+
+                        //Wait for all the results of SQL queries and clear the promise table
+                        if($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
+                            yield \Amp\Promise\all($promises);
+                            $promises = [];
+                            $promise_count = 0;
+                        }
+                    }
+
+                    foreach ($blueprint->triggers as $key => $trigger) {
+                        yield $this->deleteTrigger($trigger);
+                        unset($blueprint->triggers[$key]);
                     }
                 }
-
-                foreach ($blueprint->triggers as $key => $trigger) {
-                    yield $this->deleteTrigger($trigger);
-                    unset($blueprint->triggers[$key]);
-                }
-            }
-        });
+            });
+        }
     }
 
 
     /**
-     * Perform data anonymization.
+     * Perform data anonymization cross 2 MySQL servers.
      *
      * @return void
      */
-    public function remote_run()
+    protected function remote_run()
     {
         Amp\Loop::run(function () {
             $promises = [];
@@ -262,6 +287,8 @@ class Anonymizer
 
             foreach ($this->blueprints as $index => $blueprint) {
                 $table = $blueprint->table;
+                $this->setGenerator(\Faker\Factory::create($this->config['DEFAULT_GENERATOR_LOCALE']));
+                $this->load_providers();
                 $foreign_keys = yield $this->getRelatedForeignKeys(false, [$table]);
                 $exclude_foreign_keys = [];
                 while(yield $foreign_keys->advance()) {
@@ -498,6 +525,7 @@ class Anonymizer
      * @param array $columns
      * @param int $rowNum
      * @param array $row
+     * @param Blueprint $blueprint
      *
      * @return string
      */
@@ -560,7 +588,7 @@ class Anonymizer
     /**
      * Build SQL statement for fields need synchonization
      *
-     * @param Blueprint $blueprint
+     * @param array  $columnInfo
      * @param string $newData
      * @param string $originalData
      *
@@ -729,6 +757,15 @@ class Anonymizer
         return $this->mysql_pool_source->query($sql);
     }
 
+
+    /**
+     * (Remote operation only)
+     * Buid a tree from given foreign keys
+     *
+     * @param array $foreign_keys
+     *
+     * @return array
+     */
     protected function constructDependencyTree($foreign_keys)
     {
         $tree = [];
@@ -743,6 +780,14 @@ class Anonymizer
         return $tree;
     }
 
+    /**
+     * (Remote operation only)
+     * Add dependency relationships to a tree
+     *
+     * @param array $tree
+     *
+     * @return array
+     */
     protected function addExtraDependenceRelations($tree)
     {
         foreach ($this->blueprints as $blueprint) {
@@ -763,6 +808,15 @@ class Anonymizer
         return $tree;
     }
 
+
+    /**
+     * (Remote operation only)
+     * Test a dependency tree to make sure there is no circle in it
+     *
+     * @param array $tree
+     *
+     * @return array
+     */
     protected function testDependencyTree($tree)
     {
         $resolved = [];
@@ -792,6 +846,14 @@ class Anonymizer
         ];
     }
 
+    /**
+     * (Remote operation only)
+     * Sort the anonymization process according to given foreign keys
+     *
+     * @param array $foreign_keys
+     *
+     * @return array
+     */
     protected function reorderBlueprints($foreign_keys)
     {
         $tree   = $this->constructDependencyTree($foreign_keys);

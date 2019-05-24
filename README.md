@@ -6,7 +6,7 @@ MySQL Data Anonymizer is the right tool for you. This tool helps you replace all
 Fake data is provided by a [fzaninotto/Faker](https://github.com/fzaninotto/Faker) generator by default, but you can also use your own generator.
 To improve the performance, [AMP/MySQL](https://github.com/amphp/mysql) is used to create multiple MySQL connections concurrently.
 
-MySQL Data Anonymizer requires PHP >= 7.2.
+MySQL Data Anonymizer requires PHP >= 7.0.
 
 # Table of Contents
 
@@ -27,7 +27,15 @@ Rename the config-sample.php file to config.php and modify the configurations to
     'DB_PASSWORD' => 'password',
     'NB_MAX_MYSQL_CLIENT' => 50,
     'NB_MAX_PROMISE_IN_LOOP' => 50,
-    'DEFAULT_GENERATOR_LOCALE' => 'en_US'
+    'DEFAULT_GENERATOR_LOCALE' => 'en_US',
+
+
+    //For remote operations, these parameters are needed too
+    'DB_HOST_SOURCE' => '8.8.8.8',
+    'DB_NAME_SOURCE' => 'source_db',
+    'DB_USER_SOURCE' => 'username_source',
+    'DB_PASSWORD_SOURCE' => 'password_source',
+    'NB_MAX_MYSQL_CLIENT_SOURCE' => 50
 );
 ```
 NB_MAX_MYSQL_CLIENT is the max number of MySQL connections simultaneously when executing your scripts.
@@ -78,10 +86,13 @@ $anonymizer->table('users', function ($table) {
         return $generator->unique()->email;
     });
 
+    // A sortcut of previous method
+    $table->column('email5')->where('ID != 1')->replaceWithGenerator('email', true);
+
     // Use the values of current row to update a field
     // This is a position sensitive operation, so the value of field 'email4' here is the updated value.
     // So if you put this line before the previous one, the value of 'email4' here would be the valeu of 'email4' before update.
-    $table->column('email5')->replaceByFields(function ($rowData) {
+    $table->column('email6')->replaceByFields(function ($rowData) {
         return strtolower($rowData['email4']);
     });
 
