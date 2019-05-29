@@ -45,7 +45,7 @@ By default, MySQL supports at most 151 connections simultaneously, but you can m
 
 NB_MAX_PROMISE_IN_LOOP is the max number of promises we keep in the promise table. Each promise represents the future result of an SQL query. The larger the number, the faster the execution will be. But you have to be careful that holding a large number of promises will consume too much memory and CPU resources. If your processor can't afford it, the run time will be at least 10 times longer than expected. <strong>If you don't know too much about the performance of your processor, just leave this variable to 50, or even 20 if you are not quite confident on it</strong>.
 
-DEFAULT_GENERATOR_LOCALE influences the generated data's language and format by Faker's generator. You can find the full list of locales from [here](https://github.com/fzaninotto/Faker/tree/master/src/Faker/Provider)
+DEFAULT_GENERATOR_LOCALE influences the generated data's language and format by Faker's generator. You can find the full list of locales from [here](https://github.com/fzaninotto/Faker/tree/master/src/Faker/Provider).
 
 Normally, local anonymization is 10 times faster than remote operation. So there is a decision to make between security and performance. If you want to protect production data by any means, use the remote method directly. You don't even need to donwload the production base. On the other hand, if you care more about performance or if you reset your database frequently, local anonymization is definitely your choice.
 

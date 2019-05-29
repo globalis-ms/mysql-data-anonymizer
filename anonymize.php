@@ -47,7 +47,7 @@ class Anonymize
     protected function load_config()
     {
         try {
-        	if(!is_dir("workspace/" . $this->project_directory)) {
+        	if (!is_dir("workspace/" . $this->project_directory)) {
         		throw new Exception('Project directory not found.');
         	}
             if (file_exists(__DIR__ . "/config/" . $this->project_directory . ".php")) {
@@ -133,7 +133,7 @@ class Anonymize
     	$files = array_diff(scandir("workspace/" . $this->project_directory), array('.', '..'));
     	foreach ($files as $file) {
     		$path_info = pathinfo("workspace/" . $this->project_directory . "/" . $file);
-    		if($path_info && $path_info['extension'] === 'php') {
+    		if ($path_info && $path_info['extension'] === 'php') {
                 $table = new Blueprint($path_info['filename'], $this->config['DB_NAME']);
                 include "workspace/" . $this->project_directory . "/" . $file;
                 $this->anonymizer->addTable($table);

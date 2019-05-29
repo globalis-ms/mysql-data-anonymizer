@@ -183,7 +183,7 @@ class Blueprint
                     $final_generator = $final_generator->optional($weight = $optional_weight, $default = $default_value);
                 } elseif ($default_value) {
                     $final_generator = $final_generator->optional($default = $default_value);
-                } elseif($optional_weight) {
+                } elseif ($optional_weight) {
                     $final_generator = $final_generator->optional($weight = $optional_weight);
                 } else {
                     $final_generator = $final_generator->optional();
@@ -244,7 +244,7 @@ class Blueprint
     {
         $callback = $this->callback;
 
-        if(is_callable($callback)) {
+        if (is_callable($callback)) {
             $callback($this);
         }
 

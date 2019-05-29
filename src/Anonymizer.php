@@ -249,7 +249,7 @@ class Anonymizer
                         $rowNum ++;
 
                         //Wait for all the results of SQL queries and clear the promise table
-                        if($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
+                        if ($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
                             yield \Amp\Promise\all($promises);
                             $promises = [];
                             $promise_count = 0;
@@ -292,12 +292,12 @@ class Anonymizer
                 $this->load_providers();
                 $foreign_keys = yield $this->getRelatedForeignKeys(false, [$table]);
                 $exclude_foreign_keys = [];
-                while(yield $foreign_keys->advance()) {
+                while (yield $foreign_keys->advance()) {
                     $exclude_foreign_keys[] = $this->getForeignKeyString($foreign_keys->getCurrent());
                 }
 
                 $create_table_request = yield $this->getCreateTableRequest($table);
-                if(yield $create_table_request->advance()) {
+                if (yield $create_table_request->advance()) {
                     $create_table_request = $create_table_request->getCurrent()['Create Table'];
 
                     $create_table_request = str_replace($exclude_foreign_keys, '', $create_table_request);
@@ -313,7 +313,7 @@ class Anonymizer
                 while (yield $selectData->advance()) {
                     $row = $selectData->getCurrent();
                     yield $this->disableForeignKeyCheck();
-                    foreach($this->insertLine(
+                    foreach ($this->insertLine(
                         $blueprint,
                         Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
                         $blueprint->columns,
@@ -325,7 +325,7 @@ class Anonymizer
                         $rowNum ++;
 
                         //Wait for all the results of SQL queries and clear the promise table
-                        if($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
+                        if ($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
                             yield \Amp\Promise\all($promises);
                             $promises = [];
                             $promise_count = 0;
@@ -334,7 +334,7 @@ class Anonymizer
                 }
             }
 
-            foreach($foreignKeyTable as $row) {
+            foreach ($foreignKeyTable as $row) {
                 yield $this->restoreForeignKey($row);
             }
         });
@@ -470,7 +470,7 @@ class Anonymizer
 
         $returnPromises = [];
         $returnPromises[] = $this->mysql_pool->query($sql);
-        if(!empty($set_and_synchro['synchro'])) {
+        if (!empty($set_and_synchro['synchro'])) {
             foreach ($set_and_synchro['synchro'] as $synchroStatement) {
                 $returnPromises[] = $this->mysql_pool->query($synchroStatement);
             }
@@ -500,12 +500,12 @@ class Anonymizer
             }
         }
 
-        if(!($columns ?? false)) {
+        if (!($columns ?? false)) {
             $columns = implode(',', array_merge($blueprint->primary, array_column($blueprint->columns, 'name')));
         }
         $sql = "SELECT {$columns} FROM {$table}";
 
-        if($blueprint->globalWhere) {
+        if ($blueprint->globalWhere) {
             $sql .= " WHERE " . $blueprint->globalWhere;
         }
 
@@ -570,7 +570,7 @@ class Anonymizer
             }
 
             if ($this->is_remote && isset($blueprint->synchroColumns[$column['name']]) && $originalData !== $row[$column['name']]) {
-                foreach($blueprint->synchroColumns[$column['name']] as $index => $columnInfo) {
+                foreach ($blueprint->synchroColumns[$column['name']] as $index => $columnInfo) {
                     $synchroStatements[] = $this->buildSynchroStatement($columnInfo, $row[$column['name']], $originalData);
                 }
             }
@@ -580,8 +580,8 @@ class Anonymizer
 
             $updated_columns = array_column($columns, 'name');
             foreach ($row as $name => $value) {
-                if(!in_array($name, $updated_columns)) {
-                    if(is_null($value)) {
+                if (!in_array($name, $updated_columns)) {
+                    if (is_null($value)) {
                         $set[] = "{$name} = NULL";
                     } else {
                         $value = addslashes($value);
@@ -610,7 +610,7 @@ class Anonymizer
      */
     protected function buildSynchroStatement($columnInfo, $newData, $originalData)
     {
-        if($columnInfo['table'] && $columnInfo['database']) {
+        if ($columnInfo['table'] && $columnInfo['database']) {
             $table = $columnInfo['database'] . '.' . $columnInfo['table']; 
         } else {
             $table = $columnInfo['table'];
@@ -739,7 +739,7 @@ class Anonymizer
      */
     protected function getRelatedForeignKeys($include_reference = false, $tables = null)
     {
-        if(!$tables) {
+        if (!$tables) {
             $tables = array_column($this->blueprints, 'table');
         }
 
@@ -763,7 +763,7 @@ class Anonymizer
                 AND key_column.TABLE_NAME IN ({$tables})
         ";
 
-        if($include_reference) {
+        if ($include_reference) {
             $sql .= " AND key_column.REFERENCED_TABLE_NAME IN ({$tables})";
         }
         return $this->mysql_pool_source->query($sql);
@@ -782,10 +782,10 @@ class Anonymizer
     {
         $tree = [];
         foreach ($foreign_keys as $foreign_key) {
-            if(!isset($tree[$foreign_key['REFERENCED_TABLE_NAME']])) {
+            if (!isset($tree[$foreign_key['REFERENCED_TABLE_NAME']])) {
                 $tree[$foreign_key['REFERENCED_TABLE_NAME']] = [];
             }
-            if(!in_array($foreign_key['TABLE_NAME'], $tree[$foreign_key['REFERENCED_TABLE_NAME']])) {
+            if (!in_array($foreign_key['TABLE_NAME'], $tree[$foreign_key['REFERENCED_TABLE_NAME']])) {
                  $tree[$foreign_key['REFERENCED_TABLE_NAME']][] = $foreign_key['TABLE_NAME'];
             }
         }
@@ -836,12 +836,12 @@ class Anonymizer
 
         $tables_to_be_deleted = array_diff($tables, array_keys($tree));
 
-        while(!empty($tables_to_be_deleted)) {
+        while (!empty($tables_to_be_deleted)) {
             $new_tables_to_be_delected = [];
-            foreach($tables_to_be_deleted as $table_to_be_deleted) {
+            foreach ($tables_to_be_deleted as $table_to_be_deleted) {
                 foreach ($tree as $index => $node) {
                     $tree[$index] = array_diff($node, [$table_to_be_deleted]);
-                    if(empty($tree[$index])) {
+                    if (empty($tree[$index])) {
                         unset($tree[$index]);
                         $new_tables_to_be_delected[] = $index;
                     }
@@ -873,7 +873,7 @@ class Anonymizer
         $result = $this->testDependencyTree($tree);
 
         try {
-            if(!$result['success']) {
+            if (!$result['success']) {
                 throw new Exception(' The dependent relationship of these tables can not be resolved : ' . implode(",", array_keys($result['round'])));
             } else {
                 $new_order = $result['order'];
