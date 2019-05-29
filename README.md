@@ -195,19 +195,24 @@ For big projects, you might don't want to write the anonymization process of all
 In this case, you can use the system of workspace. By using workspace, you can create a php file for each table to anonymize. Also, you can create a configuration file for each project.
 
 For example, il you want to create a project named 'My project', create the configuration file and the directory as below:
-|
-|---- config
-|     |
-|     |---- My_project.php
-|
-|---- src
-|---- vendor
-|---- workspace
-      |
-      |---- My_project
-            |
-            |---- table1.php
-            |---- table2.php
-            |---- table3.php
+
+```
+├── config
+│   │
+│   └── My_project.php
+├── src
+│
+├── vendor
+│
+└── workspace
+    │
+    └── My_project
+        │ 
+        ├── table1.php
+        │ 
+        ├── table2.php
+        │ 
+        └── table3.php
+```
 
 If there is no configuration file with the current project name, the initial configuration file 'config.php' will be used. In the command line, you need to execute 'php anonymize My_project'. By default, MySQL data anonymizer anonymize all the tables in your project directory.
