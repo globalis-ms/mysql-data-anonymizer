@@ -6,13 +6,14 @@ MySQL Data Anonymizer is the right tool for you. This tool helps you replace all
 Fake data is provided by a [fzaninotto/Faker](https://github.com/fzaninotto/Faker) generator by default, but you can also use your own generator.
 To improve the performance, [AMP/MySQL](https://github.com/amphp/mysql) is used to create multiple MySQL connections concurrently.
 
-MySQL Data Anonymizer requires PHP >= 7.2.
+MySQL Data Anonymizer requires PHP >= 7.0.
 
 # Table of Contents
 
 - [Configuration](#configuration)
 - [Example code](#example-code)
 - [Helpers and providers](#helpers-and-providers)
+- [Workspace](#workspace)
 
 
 
@@ -27,7 +28,16 @@ Rename the config-sample.php file to config.php and modify the configurations to
     'DB_PASSWORD' => 'password',
     'NB_MAX_MYSQL_CLIENT' => 50,
     'NB_MAX_PROMISE_IN_LOOP' => 50,
-    'DEFAULT_GENERATOR_LOCALE' => 'en_US'
+    'DEFAULT_GENERATOR_LOCALE' => 'en_US',
+    'IS_REMOTE' => false,
+
+
+    //For remote operations, set 'IS_REMOTE' to true and these parameters will be needed
+    'DB_HOST_SOURCE' => '8.8.8.8',
+    'DB_NAME_SOURCE' => 'source_db',
+    'DB_USER_SOURCE' => 'username_source',
+    'DB_PASSWORD_SOURCE' => 'password_source',
+    'NB_MAX_MYSQL_CLIENT_SOURCE' => 50
 );
 ```
 NB_MAX_MYSQL_CLIENT is the max number of MySQL connections simultaneously when executing your scripts.
@@ -35,9 +45,9 @@ By default, MySQL supports at most 151 connections simultaneously, but you can m
 
 NB_MAX_PROMISE_IN_LOOP is the max number of promises we keep in the promise table. Each promise represents the future result of an SQL query. The larger the number, the faster the execution will be. But you have to be careful that holding a large number of promises will consume too much memory and CPU resources. If your processor can't afford it, the run time will be at least 10 times longer than expected. <strong>If you don't know too much about the performance of your processor, just leave this variable to 50, or even 20 if you are not quite confident on it</strong>.
 
-DEFAULT_GENERATOR_LOCALE influences the generated data's language and format by Faker's generator. You can find the full list of locales from [here](https://github.com/fzaninotto/Faker/tree/master/src/Faker/Provider)
+DEFAULT_GENERATOR_LOCALE influences the generated data's language and format by Faker's generator. You can find the full list of locales from [here](https://github.com/fzaninotto/Faker/tree/master/src/Faker/Provider).
 
-
+Normally, local anonymization is 10 times faster than remote operation. So there is a decision to make between security and performance. If you want to protect production data by any means, use the remote method directly. You don't even need to donwload the production base. On the other hand, if you care more about performance or if you reset your database frequently, local anonymization is definitely your choice.
 
 ## Example code
 
@@ -78,10 +88,13 @@ $anonymizer->table('users', function ($table) {
         return $generator->unique()->email;
     });
 
+    // A sortcut of previous method
+    $table->column('email5')->where('ID != 1')->replaceWithGenerator('email', true);
+
     // Use the values of current row to update a field
     // This is a position sensitive operation, so the value of field 'email4' here is the updated value.
     // So if you put this line before the previous one, the value of 'email4' here would be the valeu of 'email4' before update.
-    $table->column('email5')->replaceByFields(function ($rowData) {
+    $table->column('email6')->replaceByFields(function ($rowData) {
         return strtolower($rowData['email4']);
     });
 
@@ -175,3 +188,31 @@ $anonymizer->table('users', function ($table) {
     });
 }
 ```
+
+## Workspace
+
+For big projects, you might don't want to write the anonymization process of all the tables in 1 file.
+In this case, you can use the system of workspace. By using workspace, you can create a php file for each table to anonymize. Also, you can create a configuration file for each project.
+
+For example, il you want to create a project named 'My project', create the configuration file and the directory as below:
+
+```
+├── config
+│   │
+│   └── My_project.php
+├── src
+│
+├── vendor
+│
+└── workspace
+    │
+    └── My_project
+        │ 
+        ├── table1.php
+        │ 
+        ├── table2.php
+        │ 
+        └── table3.php
+```
+
+If there is no configuration file with the current project name, the initial configuration file 'config.php' will be used. In the command line, you need to execute 'php anonymize My_project'. By default, MySQL data anonymizer anonymize all the tables in your project directory.

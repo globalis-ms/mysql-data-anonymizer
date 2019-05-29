@@ -5,5 +5,6 @@
     'DB_PASSWORD' => 'password',
     'NB_MAX_MYSQL_CLIENT' => 50,
     'NB_MAX_PROMISE_IN_LOOP' => 50,
-    'DEFAULT_GENERATOR_LOCALE' => 'en_US'
+    'DEFAULT_GENERATOR_LOCALE' => 'en_US',
+    'IS_REMOTE' => false
 );
