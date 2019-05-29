@@ -57,10 +57,14 @@ class Anonymizer
      *
      * @param boolean $is_remote
      */
-    public function __construct($is_remote = false)
-    {
-        $this->is_remote = $is_remote;
-    	$this->load_config();
+    public function __construct($config)
+    {   
+        if (empty($config)) {
+            $this->load_config();
+        } else {
+            $this->config = $config;
+        }
+        $this->is_remote = $this->config['IS_REMOTE'];
         $this->load_helpers();
 
         $this->mysql_pool = Mysql\pool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST'].";user=".$this->config['DB_USER'].";pass=".$this->config['DB_PASSWORD'].";db=". $this->config['DB_NAME']), $this->config['NB_MAX_MYSQL_CLIENT']);
@@ -70,8 +74,8 @@ class Anonymizer
         }
 
         try {
-            if (!class_exists('\Faker\Factory')) {
-                throw new Exception('Fzaninotto can not be found.');
+            if (!class_exists("\Faker\Factory")) {
+                throw new Exception("Fzaninotto/Faker can not be found.");
             }
         } catch (Exception $e) {
             echo 'Error: ' . $e->getMessage(). PHP_EOL;
@@ -97,11 +101,12 @@ class Anonymizer
                 'DB_PASSWORD'               => $config['DB_PASSWORD'] ?? '',
                 'NB_MAX_MYSQL_CLIENT'       => $config['NB_MAX_MYSQL_CLIENT'] ?? 20,
                 'NB_MAX_PROMISE_IN_LOOP'    => $config['NB_MAX_PROMISE_IN_LOOP'] ?? 20,
-                'DEFAULT_GENERATOR_LOCALE'  => $config['DEFAULT_GENERATOR_LOCALE'] ?? 'en_US'
+                'DEFAULT_GENERATOR_LOCALE'  => $config['DEFAULT_GENERATOR_LOCALE'] ?? 'en_US',
+                'IS_REMOTE'                 => $config['IS_REMOTE'] ?? false
              ];
 
             foreach ($this->config as $parameter => $value) {
-                if (!$value) {
+                if (!isset($value) || $value === '') {
                     throw new Exception($parameter . ' can not be empty.');
                     continue;
                 }
@@ -116,7 +121,7 @@ class Anonymizer
                 throw new Exception('DB_HOST is not valid.');
             }
 
-            if ($this->is_remote) {
+            if ($config['IS_REMOTE']) {
                 $remote_config = [
                     'DB_HOST_SOURCE'                => $config['DB_HOST_SOURCE'] ?? '',
                     'DB_NAME_SOURCE'                => $config['DB_NAME_SOURCE'] ?? '',
@@ -126,7 +131,7 @@ class Anonymizer
                 ];
 
                 foreach ($remote_config as $parameter => $value) {
-                    if (!$value) {
+                    if (!isset($value) || $value === '') {
                         throw new Exception($parameter . ' can not be empty.');
                         continue;
                     }
@@ -224,11 +229,7 @@ class Anonymizer
                     foreach ($blueprint->synchroColumns as $column_name => $data) {
                         $trigger_name = "mysql_data_anonymizer_trigger_" . count($blueprint->triggers);
                         yield $this->mysql_pool->query("DROP TRIGGER IF EXISTS {$trigger_name}");
-                        try {
-                            yield $this->addUpdateTrigger($blueprint, $column_name, $data);
-                        } catch (TypeError $e) {
-                            echo "Caught as type error: ".$e->getMessage().PHP_EOL;
-                        }
+                        yield $this->addUpdateTrigger($blueprint, $column_name, $data);
                     }
 
                     $selectData = yield $this->getSelectData($table, $blueprint);
@@ -353,6 +354,19 @@ class Anonymizer
         $blueprint = new Blueprint($name, $this->config['DB_NAME'], $callback);
 
         $this->blueprints[] = $blueprint->build();
+    }
+
+
+    /**
+     * Describe a table with a given callback.
+     *
+     * @param Blueprint   $table
+     *
+     * @return void
+     */
+    public function addTable(Blueprint $table)
+    {
+        $this->blueprints[] = $table->build();
     }
 
 
@@ -622,11 +636,9 @@ class Anonymizer
     protected function addUpdateTrigger(&$blueprint, $column_name, $data)
     {
         $trigger_name = "mysql_data_anonymizer_trigger_" . count($blueprint->triggers);
-        $blueprint->triggers[] = $trigger_name; 
+        $blueprint->triggers[] = $trigger_name;
 
-        $sql = "
-                DROP TRIGGER IF EXISTS {$trigger_name};
-                CREATE TRIGGER {$trigger_name} AFTER UPDATE 
+        $sql = "CREATE TRIGGER {$trigger_name} AFTER UPDATE 
                 ON {$blueprint->table} FOR EACH ROW BEGIN ";
 
         foreach ($data as $column_update) {
