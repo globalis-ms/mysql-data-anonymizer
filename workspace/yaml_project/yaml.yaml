@@ -1,0 +1,40 @@
+tables:
+  users:
+    primary_keys: id
+    columns:
+      username:
+        type: generator
+        value: userName
+        unique: true
+        optional: false
+        defaultValue: null
+      first_name:
+        type: generator
+        value: firstName
+      last_name:
+        type: generator
+        value: lastName
+      email:
+        type: generator
+        value: email
+      language:
+        type: string
+        value: fr_FR
+      timezone:
+        type: generator
+        value: timezone
+      updated_at:
+        type: generator
+        value: iso8601
+      created_at:
+        type: generator
+        value: iso8601
+      id:
+        type: generator
+        value: uuid
+        unique: true
+        synchronizeColumn:
+          column: user_id
+          table: users_roles
+  users_roles:
+    primary_keys: id

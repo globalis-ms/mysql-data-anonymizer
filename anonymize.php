@@ -50,14 +50,17 @@ class Anonymize
         	if (!is_dir("workspace/" . $this->project_directory)) {
         		throw new Exception('Project directory not found.');
         	}
-            if (file_exists(__DIR__ . "/config/" . $this->project_directory . ".php")) {
-            	$this->_load_config(__DIR__ . "/config/" . $this->project_directory . ".php");
+            if (is_callable("yaml_parse_file") && file_exists(__DIR__ . "/config/" . $this->project_directory . ".yaml")) {
+                $config = yaml_parse_file(__DIR__ . "/config/" . $this->project_directory . ".yaml");
+            } elseif (file_exists(__DIR__ . "/config/" . $this->project_directory . ".php")) {
+                $config = require __DIR__ . "/config/" . $this->project_directory . ".php";
             } else {
             	if (!file_exists(__DIR__ . "/config/config.php")) {
-		            throw new Exception('config.php not found in the directory.');
+		            throw new Exception('No configuration file found in the directory.');
 		        }
-		        $this->_load_config(__DIR__ . "/config/config.php");
+		        $config = require __DIR__ . "/config/config.php";
             }
+            $this->_load_config($config);
         } catch (Exception $e) {
             echo 'Error: ' . $e->getMessage(). PHP_EOL;
             exit(1);
@@ -67,11 +70,9 @@ class Anonymize
     /**
      * Load configuration file
      */
-    protected function _load_config($config_path)
+    protected function _load_config($config)
     {
-        $config = require $config_path;
-
-         $this->config = [
+        $this->config = [
             'DB_HOST'                   => $config['DB_HOST'] ?? '127.0.0.1',
             'DB_NAME'                   => $config['DB_NAME'] ?? '',
             'DB_USER'                   => $config['DB_USER'] ?? '',
@@ -80,7 +81,7 @@ class Anonymize
             'NB_MAX_PROMISE_IN_LOOP'    => $config['NB_MAX_PROMISE_IN_LOOP'] ?? 20,
             'DEFAULT_GENERATOR_LOCALE'  => $config['DEFAULT_GENERATOR_LOCALE'] ?? 'en_US',
             'IS_REMOTE'  				=> $config['IS_REMOTE'] ?? false
-         ];
+        ];
 
         foreach ($this->config as $parameter => $value) {
             if (!isset($value) || $value === '') {
@@ -126,6 +127,44 @@ class Anonymize
     }
 
     /**
+     * Construct a blueprints from a YAML file
+     */
+    protected function parseYamlAnonymization($file_path)
+    {
+        $configuration = yaml_parse_file($file_path);
+        if ($configuration && $tables = $configuration['tables']) {
+            foreach ($tables as $table_name => $table_detail) {
+                $table = new Blueprint($table_name, $this->config['DB_NAME']);
+                $table->primary($table_detail["primary_keys"]);
+                if (!empty($table_detail["columns"])) {
+                    foreach ($table_detail["columns"] as $column_name => $data) {
+                        $table->column($column_name);
+                        switch ($data["type"]) {
+                            case "generator":
+                                $table->replaceWithGenerator($data['value'], $data['unique'] ?? false, $data['optional'] ?? false, $data['defaultValue'] ?? null, $data['optionalWeight'] ?? null);
+                                break;
+                            case "string":
+                                $table->replaceWith($data['value']);
+                                break;
+                        }
+                        if (!empty($data["synchronizeColumn"]["column"])) {
+                            $synchronizeInfo = [$data["synchronizeColumn"]["column"]];
+                            if (!empty($data["synchronizeColumn"]["table"])) {
+                                $synchronizeInfo[] = $data["synchronizeColumn"]["table"];
+                                if (!empty($data["synchronizeColumn"]["database"])) {
+                                    $synchronizeInfo[] = $data["synchronizeColumn"]["database"];
+                                }
+                            }
+                            $table->synchronizeColumn($synchronizeInfo);
+                        }
+                    }
+                }
+                $this->anonymizer->addTable($table);
+            }
+        }
+    }
+
+    /**
      * Construct the liste of blueprints
      */
     public function constructBluePrint()
@@ -133,14 +172,21 @@ class Anonymize
     	$files = array_diff(scandir("workspace/" . $this->project_directory), array('.', '..'));
     	foreach ($files as $file) {
     		$path_info = pathinfo("workspace/" . $this->project_directory . "/" . $file);
-    		if ($path_info && $path_info['extension'] === 'php') {
-                $table = new Blueprint($path_info['filename'], $this->config['DB_NAME']);
-                include "workspace/" . $this->project_directory . "/" . $file;
-                $this->anonymizer->addTable($table);
+    		if ($path_info) {
+                if ($path_info['extension'] === 'php') {
+                    $table = new Blueprint($path_info['filename'], $this->config['DB_NAME']);
+                    include "workspace/" . $this->project_directory . "/" . $file;
+                    $this->anonymizer->addTable($table);
+                } elseif (is_callable("yaml_parse_file") && $path_info['extension'] === 'yaml') {
+                    $this->parseYamlAnonymization("workspace/" . $this->project_directory . "/" . $file);
+                }
             }
     	}
     }
 
+    /**
+     * Start the anonymization process
+     */
     public static function run($database_name)
     {
         $anonymize = new self($database_name);

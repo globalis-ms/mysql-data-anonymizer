@@ -14,6 +14,7 @@ MySQL Data Anonymizer requires PHP >= 7.0.
 - [Example code](#example-code)
 - [Helpers and providers](#helpers-and-providers)
 - [Workspace](#workspace)
+- [YAML support](#yaml-support)
 
 
 
@@ -216,3 +217,91 @@ For example, il you want to create a project named 'My project', create the conf
 ```
 
 If there is no configuration file with the current project name, the initial configuration file 'config.php' will be used. In the command line, you need to execute 'php anonymize My_project'. By default, MySQL data anonymizer anonymize all the tables in your project directory.
+
+## YAML support
+
+To make the anonymization configuration easier, we decided to add the support for YAML files. When you use a workspace to anonymize the database, you can replace the configuration files and anonymization files written in PHP by YAML files. 
+
+PHP extension 'php-yaml' is required to use this feature.
+
+Configuration file (For Workspace only, global configuration file should still use PHP format): 
+```yaml
+DB_HOST: 127.0.0.1
+DB_NAME: dbname
+DB_USER: username
+DB_PASSWORD: password
+NB_MAX_MYSQL_CLIENT: 50
+NB_MAX_PROMISE_IN_LOOP: 50
+DEFAULT_GENERATOR_LOCALE: en_US
+IS_REMOTE: false
+
+DB_HOST_SOURCE: 8.8.8.8
+DB_NAME_SOURCE: source_db
+DB_USER_SOURCE: username_source
+DB_PASSWORD_SOURCE: password_source
+NB_MAX_MYSQL_CLIENT_SOURCE: 50
+
+```
+
+Anonymization file:
+ ```yaml
+tables:
+  users:
+    primary_keys: id
+    columns:
+      username:
+        type: generator
+        value: userName
+        unique: true
+        optional: false
+        defaultValue: null
+      first_name:
+        type: generator
+        value: firstName
+      last_name:
+        type: generator
+        value: lastName
+      email:
+        type: generator
+        value: email
+      language:
+        type: string
+        value: fr_FR
+      timezone:
+        type: generator
+        value: timezone
+      updated_at:
+        type: generator
+        value: iso8601
+      created_at:
+        type: generator
+        value: iso8601
+      id:
+        type: generator
+        value: uuid
+        unique: true
+        synchronizeColumn:
+          column: user_id
+          table: users_roles
+  users_roles:
+    primary_keys: id
+
+```
+
+You can either put the anonymization instructions together in one file or separately like normal workspace anonymization process with php files. Here are some basic rules for YAML anonymization file:
+
+All YAML anonymization files should start with node 'tables', the children of 'tables' should be table names that need to be anonymized.
+
+For each table, 'primary_keys' should be specified, all columns involved should be in 'columns'.
+
+For each column, anonymization 'type' and 'value' are required. For now, we support only 2 types: 'string' and 'generator'. If 'string' is selected, the value of current column will be replaced directly by 'value'. Therefore, 'generator' will replace the value by a generator method named 'value'. Optional fields available for 'generator' are:
+'unique'(boolean), 'optional'(boolean), 'defaultValue'(string), 'optionalWeight'(number).
+
+'synchronizeColumn' function is also supported in YAML anonymization. 'column'(required), 'table', 'database' are the parameters concerned.
+
+'replaceByFields' is not supported in YAML format because it uses php syntax.
+
+
+
+
+
