@@ -1,5 +1,5 @@
 {
-	"name": "globalis/mySQL-data-anonymizer",
+	"name": "globalis/mysql-data-anonymizer",
     "description": "Anonymize sensitive datas in test database",
     "type": "library",
     "authors": [
