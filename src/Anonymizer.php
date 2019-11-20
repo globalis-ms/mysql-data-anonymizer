@@ -8,6 +8,8 @@ use Amp\Mysql;
 use Exception;
 use Globalis\MysqlDataAnonymizer\Helpers;
 
+require 'ControlledConnectionPool.php';
+
 class Anonymizer
 {
     /**
@@ -58,7 +60,7 @@ class Anonymizer
      * @param boolean $is_remote
      */
     public function __construct($config)
-    {   
+    {
         if (empty($config)) {
             $this->load_config();
         } else {
@@ -67,8 +69,10 @@ class Anonymizer
         $this->is_remote = $this->config['IS_REMOTE'];
         $this->load_helpers();
 
-        $this->mysql_pool = Mysql\pool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST'].";user=".$this->config['DB_USER'].";pass=".$this->config['DB_PASSWORD'].";db=". $this->config['DB_NAME']), $this->config['NB_MAX_MYSQL_CLIENT']);
+        $this->mysql_pool = controlledConnectionPool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST'].";user=".$this->config['DB_USER'].";pass=".$this->config['DB_PASSWORD'].";db=". $this->config['DB_NAME']), $this->config['NB_MAX_MYSQL_CLIENT']);
 
+        $this->disableForeignKeyCheck();
+        
         if ($this->is_remote) {
             $this->mysql_pool_source = Mysql\pool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST_SOURCE'].";user=".$this->config['DB_USER_SOURCE'].";pass=".$this->config['DB_PASSWORD_SOURCE'].";db=". $this->config['DB_NAME_SOURCE']), $this->config['NB_MAX_MYSQL_CLIENT_SOURCE']);
         }
@@ -210,101 +214,34 @@ class Anonymizer
      */
     public function run()
     {
-        if ($this->is_remote) {
-            $this->remote_run();
-        }
-        else {
-            Amp\Loop::run(function () {
-                $promises = [];
-                $promise_count = 0;
-                yield $this->disableForeignKeyCheck();
-                foreach ($this->blueprints as $index => $blueprint) {
-                    if (empty($blueprint->columns)) {
-                        continue;
-                    }
-
-                    $table = $blueprint->table;
-                    $this->setGenerator(\Faker\Factory::create($this->config['DEFAULT_GENERATOR_LOCALE']));
-                    $this->load_providers();
-                    foreach ($blueprint->synchroColumns as $column_name => $data) {
-                        $trigger_name = "mysql_data_anonymizer_trigger_" . count($blueprint->triggers);
-                        yield $this->mysql_pool->query("DROP TRIGGER IF EXISTS {$trigger_name}");
-                        yield $this->addUpdateTrigger($blueprint, $column_name, $data);
-                    }
-
-                    $selectData = yield $this->getSelectData($table, $blueprint);
-                    $rowNum = 0;
-
-                    //Update every line selected
-                    while (yield $selectData->advance()) {
-                        $row = $selectData->getCurrent();
-                        $promises[] = $this->updateByPrimary(
-                            $blueprint,
-                            Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
-                            $blueprint->columns,
-                            $rowNum,
-                            $row);
-
-                        $promise_count ++;
-                        $rowNum ++;
-
-                        //Wait for all the results of SQL queries and clear the promise table
-                        if ($promise_count > $this->config['NB_MAX_PROMISE_IN_LOOP']) {
-                            yield \Amp\Promise\all($promises);
-                            $promises = [];
-                            $promise_count = 0;
-                        }
-                    }
-
-                    foreach ($blueprint->triggers as $key => $trigger) {
-                        yield $this->deleteTrigger($trigger);
-                        unset($blueprint->triggers[$key]);
-                    }
-                }
-            });
-        }
-    }
-
-
-    /**
-     * Perform data anonymization cross 2 MySQL servers.
-     *
-     * @return void
-     */
-    protected function remote_run()
-    {
         Amp\Loop::run(function () {
             $promises = [];
             $promise_count = 0;
-            yield $this->disableForeignKeyCheck();
+            $this->sortBlueprints();
 
-            $foreignKeyTable = [];
-            $foreignKeys = yield $this->getRelatedForeignKeys(true);
-            while (yield $foreignKeys->advance()) {
-                $foreignKeyTable[] = $foreignKeys->getCurrent();
+            if ($this->is_remote) {
+                $tables = array_column($this->blueprints, 'table');
+                foreach ($tables as $table) {
+                    yield $this->mysql_pool->query('DROP TABLE IF EXISTS '. $table);
+                }
+
+                foreach (array_reverse($tables) as $table) {
+                    $create_table_request = yield $this->getCreateTableRequest($table);
+                    if (yield $create_table_request->advance()) {
+                        $create_table_request = $create_table_request->getCurrent()['Create Table'];
+                        yield $this->mysql_pool->query($create_table_request);
+                    }
+                }
             }
-            
-            $this->reorderBlueprints($foreignKeyTable);
 
             foreach ($this->blueprints as $index => $blueprint) {
+                if (empty($blueprint->columns) && !$this->is_remote) {
+                    continue;
+                }
+
                 $table = $blueprint->table;
                 $this->setGenerator(\Faker\Factory::create($this->config['DEFAULT_GENERATOR_LOCALE']));
                 $this->load_providers();
-                $foreign_keys = yield $this->getRelatedForeignKeys(false, [$table]);
-                $exclude_foreign_keys = [];
-                while (yield $foreign_keys->advance()) {
-                    $exclude_foreign_keys[] = $this->getForeignKeyString($foreign_keys->getCurrent());
-                }
-
-                $create_table_request = yield $this->getCreateTableRequest($table);
-                if (yield $create_table_request->advance()) {
-                    $create_table_request = $create_table_request->getCurrent()['Create Table'];
-
-                    $create_table_request = str_replace($exclude_foreign_keys, '', $create_table_request);
-
-                    yield $this->mysql_pool->query('DROP TABLE IF EXISTS '. $table);
-                    yield $this->mysql_pool->query($create_table_request);
-                }
 
                 $selectData = yield $this->getSelectData($table, $blueprint, true);
                 $rowNum = 0;
@@ -312,15 +249,25 @@ class Anonymizer
                 //Update every line selected
                 while (yield $selectData->advance()) {
                     $row = $selectData->getCurrent();
-                    yield $this->disableForeignKeyCheck();
-                    foreach ($this->insertLine(
-                        $blueprint,
-                        Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
-                        $blueprint->columns,
-                        $rowNum,
-                        $row) as $promise) {
+                    if ($this->is_remote) {
+                        $current_promises = $this->insertLine(
+                            $blueprint,
+                            Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
+                            $blueprint->columns,
+                            $rowNum,
+                            $row
+                        );
+                    } else {
+                        $current_promises = $this->updateByPrimary(
+                            $blueprint,
+                            Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
+                            $blueprint->columns,
+                            $rowNum,
+                            $row
+                        );
+                    }
+                    foreach ($current_promises as $promise) {
                         $promises[] = $promise;
-
                         $promise_count ++;
                         $rowNum ++;
 
@@ -332,10 +279,6 @@ class Anonymizer
                         }
                     }
                 }
-            }
-
-            foreach ($foreignKeyTable as $row) {
-                yield $this->restoreForeignKey($row);
             }
         });
     }
@@ -435,16 +378,24 @@ class Anonymizer
     {
         $where = $this->buildWhereForArray($primaryKeyValues);
 
-        $set = $this->buildSetForArray($columns, $rowNum, $row);
+        $set_and_after = $this->buildSetForArray($columns, $rowNum, $row, $blueprint);
 
         $sql = "UPDATE
                     {$blueprint->table}
                 SET
-                    {$set}
+                    {$set_and_after['set']}
                 WHERE
                     {$where}";
 
-        return $this->mysql_pool->query($sql);
+        $returnPromises = [];
+        $returnPromises[] = $this->mysql_pool->query($sql);
+        if (!empty($set_and_after['afterQueries'])) {
+            foreach ($set_and_after['afterQueries'] as $afterQuery) {
+                $returnPromises[] = $this->mysql_pool->query($afterQuery);
+            }
+        }
+
+        return $returnPromises;
     }
 
     /**
@@ -461,18 +412,18 @@ class Anonymizer
      */
     public function insertLine($blueprint, $primaryKeyValues, $columns, $rowNum, $row)
     {
-        $set_and_synchro = $this->buildSetForArray($columns, $rowNum, $row, $blueprint);
+        $set_and_after = $this->buildSetForArray($columns, $rowNum, $row, $blueprint);
 
-        $sql = "INSERT INTO 
+        $sql = "INSERT INTO
                     {$blueprint->table}
                 SET
-                    {$set_and_synchro['set']}";
+                    {$set_and_after['set']}";
 
         $returnPromises = [];
         $returnPromises[] = $this->mysql_pool->query($sql);
-        if (!empty($set_and_synchro['synchro'])) {
-            foreach ($set_and_synchro['synchro'] as $synchroStatement) {
-                $returnPromises[] = $this->mysql_pool->query($synchroStatement);
+        if (!empty($set_and_after['afterQueries'])) {
+            foreach ($set_and_after['afterQueries'] as $afterQuery) {
+                $returnPromises[] = $this->mysql_pool->query($afterQuery);
             }
         }
 
@@ -543,12 +494,11 @@ class Anonymizer
      *
      * @return string
      */
-    protected function buildSetForArray($columns, $rowNum, $row, $blueprint = null)
+    protected function buildSetForArray($columns, $rowNum, $row, $blueprint)
     {
         $set = [];
-        $synchroStatements = [];
+        $originalData = $row;
         foreach ($columns as $column) {
-            $originalData = $row[$column['name']];
             if (is_callable($column['replaceByFields'])) {
                 $row[$column['name']] = call_user_func($column['replaceByFields'], $row, $this->generator);
             }
@@ -563,16 +513,10 @@ class Anonymizer
                 $set[] = "{$column['name']}='{$row[$column['name']]}'";
             } else {
                 $set[] = "{$column['name']}=(
-                    CASE 
+                    CASE
                       WHEN {$column['where']} THEN '{$row[$column['name']]}'
                       ELSE {$column['name']}
                     END)";
-            }
-
-            if ($this->is_remote && isset($blueprint->synchroColumns[$column['name']]) && $originalData !== $row[$column['name']]) {
-                foreach ($blueprint->synchroColumns[$column['name']] as $index => $columnInfo) {
-                    $synchroStatements[] = $this->buildSynchroStatement($columnInfo, $row[$column['name']], $originalData);
-                }
             }
         }
 
@@ -589,83 +533,20 @@ class Anonymizer
                     }
                 }
             }
-            
-            return [
-                'set' => implode(' ,', $set),
-                'synchro' => $synchroStatements
-            ];
         }
 
-        return implode(' ,', $set);
-    }
-
-    /**
-     * Build SQL statement for fields need synchonization
-     *
-     * @param array  $columnInfo
-     * @param string $newData
-     * @param string $originalData
-     *
-     * @return string
-     */
-    protected function buildSynchroStatement($columnInfo, $newData, $originalData)
-    {
-        if ($columnInfo['table'] && $columnInfo['database']) {
-            $table = $columnInfo['database'] . '.' . $columnInfo['table']; 
-        } else {
-            $table = $columnInfo['table'];
-        }
-        $sql = "UPDATE
-                    {$table}
-                SET
-                    {$columnInfo['field']}='{$newData}'
-                WHERE
-                    {$columnInfo['field']}='{$originalData}'";
-        return $sql;
-    }
-
-    /**
-     * Add a trigger to automatically update related fields when a field is updated
-     *
-     * @param Blueprint $blueprint
-     * @param string $column_name
-     * @param array $data
-     *
-     * @return Promise
-     */
-    protected function addUpdateTrigger(&$blueprint, $column_name, $data)
-    {
-        $trigger_name = "mysql_data_anonymizer_trigger_" . count($blueprint->triggers);
-        $blueprint->triggers[] = $trigger_name;
-
-        $sql = "CREATE TRIGGER {$trigger_name} AFTER UPDATE 
-                ON {$blueprint->table} FOR EACH ROW BEGIN ";
-
-        foreach ($data as $column_update) {
-            $sql .= "
-                    UPDATE {$column_update['table']}
-                    SET {$column_update['table']}.{$column_update['field']} = NEW.{$column_name}
-                    WHERE {$column_update['table']}.{$column_update['field']} = OLD.{$column_name};
-                ";
+        $afterQueries = [];
+        foreach ($blueprint->after as $afterQuery) {
+            if (is_callable($afterQuery)) {
+                $afterQueries = call_user_func($afterQuery, $originalData, $row, $this->generator);
+            }
         }
 
-        $sql .= " END";
-        return $this->mysql_pool->query($sql);
+        return [
+            'set' => implode(' ,', $set),
+            'afterQueries' => $afterQueries
+        ];
     }
-
-    /**
-     * Drop a foreign key by the name
-     *
-     * @param string $trigger_name
-     *
-     * @return Promise
-     */
-    protected function deleteTrigger($trigger_name)
-    {
-        $sql = "DROP TRIGGER IF EXISTS {$trigger_name}";
-        return $this->mysql_pool->query($sql);
-    }
-
 
     /**
      * Disable the foreign key check for this sesssion
@@ -674,8 +555,17 @@ class Anonymizer
      */
     protected function disableForeignKeyCheck()
     {
-        $sql = "SET FOREIGN_KEY_CHECKS=0;";
-        return $this->mysql_pool->query($sql);
+        Amp\Loop::run(function () {
+            $connections = [];
+            for ($i = 0; $i < $this->config['NB_MAX_MYSQL_CLIENT']; $i++) {
+                $connections[] = yield $this->mysql_pool->extractConnection();
+            }
+
+            foreach ($connections as $connection) {
+                yield $connection->query("SET FOREIGN_KEY_CHECKS=0;");
+                $this->mysql_pool->pushToPool($connection);
+            }
+        });
     }
 
     /**
@@ -693,128 +583,19 @@ class Anonymizer
     }
 
     /**
-     * (Remote operation only)
-     * Restore a foreign key
      *
-     * @param string $foreignKey
-     *
-     * @return Promise
-     */
-    protected function restoreForeignKey($foreignKey)
-    {
-        $table_name = $this->config['DB_NAME'] . '.' . $foreignKey['TABLE_NAME'];
-        $source_table_name = $this->config['DB_NAME'] . '.' . $foreignKey['REFERENCED_TABLE_NAME'];
-        $sql = "
-                ALTER TABLE {$table_name}
-                ADD CONSTRAINT {$foreignKey['CONSTRAINT_NAME']}
-                FOREIGN KEY ({$foreignKey['COLUMN_NAME']}) 
-                REFERENCES {$source_table_name}({$foreignKey['REFERENCED_COLUMN_NAME']}) 
-                ON DELETE {$foreignKey['DELETE_RULE']} 
-                ON UPDATE {$foreignKey['UPDATE_RULE']}
-        ";
-        return $this->mysql_pool->query($sql);
-    }
-
-    /**
-     * (Remote operation only)
-     * Get string parts to create a foreign key
-     *
-     * @param string $row
-     *
-     * @return string
-     */
-    protected function getForeignKeyString($row)
-    {
-        return ",\n  CONSTRAINT `{$row['CONSTRAINT_NAME']}` FOREIGN KEY (`{$row['COLUMN_NAME']}`) REFERENCES `{$row['REFERENCED_TABLE_NAME']}` (`{$row['REFERENCED_COLUMN_NAME']}`) ON DELETE {$row['DELETE_RULE']} ON UPDATE {$row['UPDATE_RULE']}";
-    }
-
-    /**
-     * (Remote operation only)
-     * Get the information of all foreign keys related to selected tables or all tables
-     *
-     * @param boolean $include_reference
-     * @param array   $tables
-     *
-     * @return Promise
-     */
-    protected function getRelatedForeignKeys($include_reference = false, $tables = null)
-    {
-        if (!$tables) {
-            $tables = array_column($this->blueprints, 'table');
-        }
-
-        $tables = "'" . implode("','", $tables) . "'";
-
-        $sql = "
-            SELECT
-                key_column.CONSTRAINT_NAME,
-                key_column.TABLE_SCHEMA,
-                key_column.TABLE_NAME,
-                key_column.COLUMN_NAME,
-                key_column.REFERENCED_TABLE_SCHEMA,
-                key_column.REFERENCED_TABLE_NAME,
-                key_column.REFERENCED_COLUMN_NAME,
-                referential_constraints.UPDATE_RULE,
-                referential_constraints.DELETE_RULE
-            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE key_column
-            JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS referential_constraints ON key_column.CONSTRAINT_NAME = referential_constraints.CONSTRAINT_NAME
-            WHERE key_column.REFERENCED_TABLE_SCHEMA = '{$this->config['DB_NAME_SOURCE']}'
-                AND referential_constraints.UNIQUE_CONSTRAINT_SCHEMA = '{$this->config['DB_NAME_SOURCE']}'
-                AND key_column.TABLE_NAME IN ({$tables})
-        ";
-
-        if ($include_reference) {
-            $sql .= " AND key_column.REFERENCED_TABLE_NAME IN ({$tables})";
-        }
-        return $this->mysql_pool_source->query($sql);
-    }
-
-
-    /**
-     * (Remote operation only)
-     * Buid a tree from given foreign keys
-     *
-     * @param array $foreign_keys
-     *
-     * @return array
-     */
-    protected function constructDependencyTree($foreign_keys)
-    {
-        $tree = [];
-        foreach ($foreign_keys as $foreign_key) {
-            if (!isset($tree[$foreign_key['REFERENCED_TABLE_NAME']])) {
-                $tree[$foreign_key['REFERENCED_TABLE_NAME']] = [];
-            }
-            if (!in_array($foreign_key['TABLE_NAME'], $tree[$foreign_key['REFERENCED_TABLE_NAME']])) {
-                 $tree[$foreign_key['REFERENCED_TABLE_NAME']][] = $foreign_key['TABLE_NAME'];
-            }
-        }
-        return $tree;
-    }
-
-    /**
-     * (Remote operation only)
-     * Add dependency relationships to a tree
+     * Build a dependency tree
      *
      * @param array $tree
      *
      * @return array
      */
-    protected function addExtraDependenceRelations($tree)
+    protected function constructDependencyTree()
     {
+        $tree = [];
         foreach ($this->blueprints as $blueprint) {
-            foreach ($blueprint->synchroColumns as $synchroColumns) {
-                foreach ($synchroColumns as $synchroColumn) {
-                    if ($synchroColumn['database'] && $synchroColumn['database'] != $this->config['DB_NAME_SOURCE']) {
-                        continue;
-                    }
-                    if (!isset($tree[$blueprint->table])) {
-                        $tree[$blueprint->table] = [];
-                    }
-                    if (!in_array($synchroColumn['table'], $tree[$blueprint->table])) {
-                         $tree[$blueprint->table][] = $synchroColumn['table'];
-                    }
-                }
+            if (!empty($blueprint->dependencies)) {
+                $tree[$blueprint->table] = $blueprint->dependencies;
             }
         }
         return $tree;
@@ -862,14 +643,11 @@ class Anonymizer
      * (Remote operation only)
      * Sort the anonymization process according to given foreign keys
      *
-     * @param array $foreign_keys
-     *
      * @return array
      */
-    protected function reorderBlueprints($foreign_keys)
+    protected function sortBlueprints()
     {
-        $tree   = $this->constructDependencyTree($foreign_keys);
-        $tree   = $this->addExtraDependenceRelations($tree);
+        $tree   = $this->constructDependencyTree();
         $result = $this->testDependencyTree($tree);
 
         try {

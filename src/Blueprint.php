@@ -54,18 +54,18 @@ class Blueprint
     protected $currentColumn = [];
 
     /**
-     * The columns that need be synchronized.
+     * The operations after line anonymized.
      *
      * @var array
      */
-    public $synchroColumns = [];
+    public $after = [];
 
     /**
-     * Names of triggers created.
+     * Tables the current table depend on.
      *
      * @var array
      */
-    public $triggers = [];
+    public $dependencies = [];
 
     /**
      * Callback that builds blueprint.
@@ -164,6 +164,7 @@ class Blueprint
      * A simple method to set data with generator
      *
      * @param string  $data_type
+     * @param array   $parameters
      * @param boolean $is_unique
      * @param boolean $is_optional
      * @param mixed   $default_value
@@ -171,9 +172,9 @@ class Blueprint
      *
      * @return $this
      */
-    public function replaceWithGenerator($data_type, $is_unique = false, $is_optional = false, $default_value = null, $optional_weight = null)
+    public function replaceWithGenerator($data_type, $parameters = [], $is_unique = false, $is_optional = false, $default_value = null, $optional_weight = null)
     {
-        $closure = function ($generator) use($data_type, $is_unique, $is_optional, $default_value, $optional_weight) {
+        $closure = function ($generator) use($data_type, $parameters, $is_unique, $is_optional, $default_value, $optional_weight) {
             $final_generator = $generator;
             if ($is_unique) {
                 $final_generator = $final_generator->unique();
@@ -189,36 +190,30 @@ class Blueprint
                     $final_generator = $final_generator->optional();
                 }
             }
-            return $final_generator->$data_type;
+
+            if (empty($parameters)) {
+                return $final_generator->$data_type;
+            }
+            return $final_generator->$data_type(...$parameters);
         };
 
         return $this->replaceWith($closure);
     }
 
     /**
-     * Save all columns that need to be synchronized..
+     * Do whatever after the anonymization of every line
      *
-     * @param array $synchroData
+     * @param callable|string $callback
      *
-     * @return $this
+     * @return void
      */
-    public function synchronizeColumn()
+    public function doAfterUpdate($callback, $dependencies = [])
     {
-        $synchroData = (array) func_get_args();
-
-        if (!isset($this->synchroColumns[$this->currentColumn['name']])) {
-            $this->synchroColumns[$this->currentColumn['name']] = [];
+        $this->after[] = $callback;
+        if ($index = array_search($this->table, $dependencies)) {
+            unset($dependencies[$index]);
         }
-
-        foreach ($synchroData as $synchroField) {
-            $this->synchroColumns[$this->currentColumn['name']][] = [
-                'field'           => $synchroField[0],
-                'table'           => $synchroField[1] ?? $this->table,
-                'database'        => $synchroField[2] ?? $this->db_name,
-            ];
-        }
-
-        return $this;
+        $this->dependencies = array_unique(array_merge($dependencies, $this->dependencies));
     }
 
     /**

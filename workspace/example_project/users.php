@@ -2,7 +2,7 @@
 
 $table->primary('id');
 
-$table->column('username')->replaceWithGenerator('userName', true);
+$table->column('username')->replaceWithGenerator('userName', [], true);
 
 $table->column('first_name')->replaceWithGenerator('firstName');
 

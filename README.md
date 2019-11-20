@@ -89,7 +89,7 @@ $anonymizer->table('users', function ($table) {
     });
 
     // A sortcut of previous method
-    $table->column('email5')->where('ID != 1')->replaceWithGenerator('email', true);
+    $table->column('email5')->where('ID != 1')->replaceWithGenerator('email', [], true);
 
     // Use the values of current row to update a field
     // This is a position sensitive operation, so the value of field 'email4' here is the updated value.
