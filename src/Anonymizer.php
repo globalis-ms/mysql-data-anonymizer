@@ -72,7 +72,7 @@ class Anonymizer
         $this->mysql_pool = controlledConnectionPool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST'].";user=".$this->config['DB_USER'].";pass=".$this->config['DB_PASSWORD'].";db=". $this->config['DB_NAME']), $this->config['NB_MAX_MYSQL_CLIENT']);
 
         $this->disableForeignKeyCheck();
-        
+
         if ($this->is_remote) {
             $this->mysql_pool_source = Mysql\pool(Mysql\ConnectionConfig::fromString("host=".$this->config['DB_HOST_SOURCE'].";user=".$this->config['DB_USER_SOURCE'].";pass=".$this->config['DB_PASSWORD_SOURCE'].";db=". $this->config['DB_NAME_SOURCE']), $this->config['NB_MAX_MYSQL_CLIENT_SOURCE']);
         }
@@ -477,8 +477,8 @@ class Anonymizer
     {
         $where = [];
         foreach ($primaryKeyValue as $key => $value) {
-            $value = addslashes($value);
-            $where[] = "{$key}='{$value}'";
+            $value = Helpers\GeneralHelper::qstr($value);
+            $where[] = "{$key}={$value}";
         }
 
         return implode(' AND ', $where);
@@ -507,14 +507,14 @@ class Anonymizer
                 $row[$column['name']] = $this->calculateNewValue($column['replace'], $rowNum);
             }
 
-            $row[$column['name']] = addslashes($row[$column['name']]);
+            $row[$column['name']] = Helpers\GeneralHelper::qstr($row[$column['name']]);
 
             if (empty($column['where'])) {
-                $set[] = "{$column['name']}='{$row[$column['name']]}'";
+                $set[] = "{$column['name']}={$row[$column['name']]}";
             } else {
                 $set[] = "{$column['name']}=(
                     CASE
-                      WHEN {$column['where']} THEN '{$row[$column['name']]}'
+                      WHEN {$column['where']} THEN {$row[$column['name']]}
                       ELSE {$column['name']}
                     END)";
             }
@@ -528,8 +528,8 @@ class Anonymizer
                     if (is_null($value)) {
                         $set[] = "{$name} = NULL";
                     } else {
-                        $value = addslashes($value);
-                        $set[] = "{$name} = '{$value}'";
+                        $value = Helpers\GeneralHelper::qstr($value);
+                        $set[] = "{$name} = {$value}";
                     }
                 }
             }
