@@ -246,26 +246,25 @@ class Anonymizer
                 $selectData = yield $this->getSelectData($table, $blueprint, true);
                 $rowNum = 0;
 
+                if ($this->is_remote) {
+                    $method = 'insertLine';
+                } else {
+                    $method = 'updateByPrimary';
+                }
+
                 //Update every line selected
                 while (yield $selectData->advance()) {
+
                     $row = $selectData->getCurrent();
-                    if ($this->is_remote) {
-                        $current_promises = $this->insertLine(
-                            $blueprint,
-                            Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
-                            $blueprint->columns,
-                            $rowNum,
-                            $row
-                        );
-                    } else {
-                        $current_promises = $this->updateByPrimary(
-                            $blueprint,
-                            Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
-                            $blueprint->columns,
-                            $rowNum,
-                            $row
-                        );
-                    }
+
+                    $current_promises = $this->$method(
+                        $blueprint,
+                        Helpers\GeneralHelper::arrayOnly($row, $blueprint->primary),
+                        $blueprint->columns,
+                        $rowNum,
+                        $row
+                    );
+
                     foreach ($current_promises as $promise) {
                         $promises[] = $promise;
                         $promise_count ++;
