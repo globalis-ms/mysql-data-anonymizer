@@ -478,6 +478,7 @@ class Anonymizer
     {
         $where = [];
         foreach ($primaryKeyValue as $key => $value) {
+            $value = addslashes($value);
             $where[] = "{$key}='{$value}'";
         }
 

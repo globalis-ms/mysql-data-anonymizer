@@ -11,6 +11,10 @@ use \Amp\Sql\ResultSet as SqlResultSet;
 use \Amp\Sql\Statement as SqlStatement;
 use \Amp\Sql\Transaction as SqlTransaction;
 use \Amp\Mysql\ConnectionConfig;
+use \Amp\Mysql\PooledResultSet;
+use \Amp\Mysql\PooledStatement;
+use \Amp\Mysql\StatementPool;
+use \Amp\Mysql\PooledTransaction;
 
 final class ControlledConnectionPool extends ConnectionPool
 {

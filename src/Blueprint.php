@@ -217,6 +217,39 @@ class Blueprint
     }
 
     /**
+     * Save all columns that need to be synchronized..
+     *
+     * @param array $synchroData
+     *
+     * @return $this
+     */
+    public function synchronizeColumn()
+    {
+        $synchroData = (array) func_get_args();
+        $synchroColumns = [];
+        $currentColumn = $this->currentColumn['name'];
+
+        foreach ($synchroData as $synchroField) {
+            if (!empty($synchroField)) {
+                $synchroColumns[] = [
+                    'field' => $synchroField[0],
+                    'table' => $synchroField[1] ?? $currentColumn,
+                ];
+            }
+        }
+        $this->doAfterUpdate(function ($rowDataBefore, $rowDataAfter, $generator) use ($synchroColumns, $currentColumn) {
+            $queries = [];
+            foreach ($synchroColumns as $synchroColumn) {
+                $rowDataBefore[$currentColumn] = addslashes($rowDataBefore[$currentColumn]);
+                $rowDataAfter[$currentColumn] = addslashes($rowDataAfter[$currentColumn]);
+                $queries[] = "UPDATE {$synchroColumn['table']} SET {$synchroColumn['field']} = '{$rowDataAfter[$currentColumn]}' WHERE {$synchroColumn['field']} = '{$rowDataBefore[$currentColumn]}'";
+            }
+            return $queries;
+        }, array_unique(array_column($synchroColumns, 'table')));
+        return $this;
+    }
+
+    /**
      * Set how data should be replaced.
      *
      * @param callable|string $callback
